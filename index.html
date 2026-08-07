@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weapon Report</title>
+    <meta
+      name="description"
+      content="An honest audit of which Destiny 2 guns you actually use, against the hundreds you own."
+    />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="masthead">
+        <p class="wordmark">Weapon Report</p>
+        <p class="positioning">
+          light.gg tells you what is good. DIM tells you what you own. This tells
+          you what you actually use.
+        </p>
+      </header>
+
+      <form class="controls" id="lookup">
+        <div class="field">
+          <label for="bungie-name">Bungie Name</label>
+          <input
+            id="bungie-name"
+            name="bungie-name"
+            type="text"
+            placeholder="Guardian#1234"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="field">
+          <label for="api-key">Your Bungie API key</label>
+          <input
+            id="api-key"
+            name="api-key"
+            type="password"
+            placeholder="Paste once, stays in this browser"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="buttons">
+          <button class="button primary" type="submit" id="run">Run the report</button>
+          <button class="button" type="button" id="demo">See the demo</button>
+        </div>
+        <p class="hint">
+          The key is free and takes about a minute:
+          <a href="https://www.bungie.net/en/Application" rel="noreferrer noopener"
+            >make one at bungie.net</a
+          >, set the OAuth type to Public, and copy the API key. It is kept in this
+          browser's local storage and sent only to bungie.net.
+        </p>
+      </form>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+
+      <main id="report"></main>
+
+      <section class="panel compare" id="compare-panel">
+        <h2>Compare two accounts</h2>
+        <p class="prose">
+          Put two Bungie Names in and see whose habits are narrower. Both curves
+          land on the same plot.
+        </p>
+        <form class="controls compare-controls" id="compare-form">
+          <div class="field">
+            <label for="compare-a">First</label>
+            <input id="compare-a" type="text" placeholder="Guardian#1234" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="compare-b">Second</label>
+            <input id="compare-b" type="text" placeholder="Rival#5678" autocomplete="off" />
+          </div>
+          <div class="buttons">
+            <button class="button primary" type="submit">Compare</button>
+            <button class="button" type="button" id="compare-demo">Compare the demo pair</button>
+          </div>
+        </form>
+        <p class="status" id="compare-status" role="status" aria-live="polite"></p>
+        <div id="compare-output"></div>
+      </section>
+
+      <footer class="colophon">
+        <h2>What this will not do</h2>
+        <ul>
+          <li>
+            It counts kills, not time held. A gun you carried for a hundred hours
+            and never fired does not appear here at all.
+          </li>
+          <li>
+            Player versus enemy and player versus player kills are pooled. Bungie
+            reports unique weapon history as one total per weapon and does not
+            split it by mode, so neither can this.
+          </li>
+          <li>
+            It only sees guns with at least one recorded kill. The rest of the
+            vault is invisible, which means the real concentration is worse than
+            the number shown.
+          </li>
+          <li>
+            Accounts with Destiny privacy turned on return nothing at all, and
+            that is the account holder's setting to change.
+          </li>
+        </ul>
+        <p class="links">
+          <a href="https://github.com/keivanmalhani/weapon-report" rel="noreferrer noopener"
+            >Source on GitHub</a
+          >
+          <span aria-hidden="true">/</span>
+          <span>MIT</span>
+          <span aria-hidden="true">/</span>
+          <span>Not affiliated with Bungie</span>
+        </p>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
