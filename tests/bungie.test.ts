@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { API_KEY } from '../src/auth';
 import {
   explainFailure,
   formatBungieName,
@@ -8,8 +9,22 @@ import {
   platformFetch,
   readWeaponEntry,
   readWeaponStats,
-  BungieError
+  BungieError,
+  type FailureKind,
+  type FetchOptions
 } from '../src/bungie';
+
+const ALL_KINDS: FailureKind[] = [
+  'app-key',
+  'signed-out',
+  'private',
+  'not-found',
+  'no-characters',
+  'no-kills',
+  'network',
+  'bungie-down',
+  'unknown'
+];
 
 describe('parseBungieName', () => {
   it('splits a plain name and code', () => {
@@ -196,16 +211,33 @@ describe('platformFetch', () => {
     ).rejects.toMatchObject({ kind: 'private', code: 1665 });
   });
 
-  it('maps a missing key to the no key failure kind', async () => {
+  it('maps a missing or rejected application key to the app key failure kind', async () => {
     await expect(
       platformFetch('/x/', { retries: 0 }, once({ ErrorCode: 2102 }, 500))
-    ).rejects.toMatchObject({ kind: 'no-key' });
-  });
-
-  it('maps a bad key to the bad key failure kind', async () => {
+    ).rejects.toMatchObject({ kind: 'app-key' });
     await expect(
       platformFetch('/x/', { retries: 0 }, once({ ErrorCode: 2101 }, 500))
-    ).rejects.toMatchObject({ kind: 'bad-key' });
+    ).rejects.toMatchObject({ kind: 'app-key' });
+  });
+
+  it('maps every expired sign-in code to the signed out failure kind', async () => {
+    for (const code of [99, 2111, 2123, 2124]) {
+      await expect(
+        platformFetch('/x/', { retries: 0 }, once({ ErrorCode: code }, 401))
+      ).rejects.toMatchObject({ kind: 'signed-out', code });
+    }
+  });
+
+  it('does not retry an expired sign-in, because nothing renews it', async () => {
+    let calls = 0;
+    const expired = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ ErrorCode: 2111 }), { status: 401 });
+    }) as unknown as typeof fetch;
+    await expect(platformFetch('/x/', { retries: 3 }, expired)).rejects.toBeInstanceOf(
+      BungieError
+    );
+    expect(calls).toBe(1);
   });
 
   it('retries a transient error and then succeeds', async () => {
@@ -249,14 +281,35 @@ describe('platformFetch', () => {
   });
 
   it('sends the API key header when one is given', async () => {
+    const seen = await headersFrom({ apiKey: 'abc', retries: 0 });
+    expect(seen['X-API-Key']).toBe('abc');
+  });
+
+  it('sends the shared application key when none is given', async () => {
+    // Nobody is asked for a key any more, so every call has to carry this one.
+    const seen = await headersFrom({ retries: 0 });
+    expect(seen['X-API-Key']).toBe(API_KEY);
+  });
+
+  it('sends no authorization header when nobody is signed in', async () => {
+    const seen = await headersFrom({ retries: 0, accessToken: null });
+    expect(seen['Authorization']).toBeUndefined();
+  });
+
+  it('sends the signed-in token as a bearer when there is one', async () => {
+    const seen = await headersFrom({ retries: 0, accessToken: 'token-123' });
+    expect(seen['Authorization']).toBe('Bearer token-123');
+  });
+
+  async function headersFrom(options: FetchOptions): Promise<Record<string, string>> {
     let seen: Record<string, string> = {};
     const spy = (async (_url: string, init: RequestInit) => {
       seen = init.headers as Record<string, string>;
       return new Response(JSON.stringify({ ErrorCode: 1, Response: 1 }), { status: 200 });
     }) as unknown as typeof fetch;
-    await platformFetch('/x/', { apiKey: 'abc', retries: 0 }, spy);
-    expect(seen['X-API-Key']).toBe('abc');
-  });
+    await platformFetch('/x/', options, spy);
+    return seen;
+  }
 });
 
 describe('explainFailure', () => {
@@ -268,19 +321,23 @@ describe('explainFailure', () => {
   });
 
   it('has a sentence for every failure kind', () => {
-    for (const kind of [
-      'no-key',
-      'bad-key',
-      'private',
-      'not-found',
-      'no-characters',
-      'no-kills',
-      'network',
-      'bungie-down',
-      'unknown'
-    ] as const) {
+    for (const kind of ALL_KINDS) {
       expect(explainFailure(kind).length).toBeGreaterThan(20);
     }
+  });
+
+  it('never asks the reader to go and make an API key', () => {
+    // The whole point of the sign-in work: nothing on this site sends anyone to
+    // bungie.net/en/Application to create a key of their own.
+    for (const kind of ALL_KINDS) {
+      expect(explainFailure(kind), kind).not.toMatch(/your own|create|make one|paste/i);
+    }
+  });
+
+  it('says an expired sign-in cannot be renewed rather than just failing', () => {
+    const text = explainFailure('signed-out');
+    expect(text).toContain('hour');
+    expect(text).toContain('again');
   });
 });
 

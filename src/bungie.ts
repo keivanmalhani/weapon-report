@@ -1,8 +1,9 @@
 // Bungie.net platform client.
 //
-// Two kinds of call live here. The manifest endpoints need no credentials at
-// all. Everything that touches a named player needs the reader's own free API
-// key, which stays in localStorage and is never sent anywhere but bungie.net.
+// Every call carries the shared application key from auth.ts. Public stats need
+// nothing more than that. A signed-in visitor's access token goes along as well
+// where one exists, which is what lets somebody read their own account when
+// their Destiny privacy is set to private.
 //
 // Confirmed against the live OpenAPI document at
 // https://github.com/Bungie-net/api. Note that the route for the weapon
@@ -10,6 +11,7 @@
 // Destiny2.GetUniqueWeaponHistory. Stats/UniqueWeaponHistory/ is not a route
 // and returns an HTML error page.
 
+import { API_KEY } from './auth';
 import type { CharacterRef, PlayerRef, WeaponUsage } from './types';
 
 export const PLATFORM = 'https://www.bungie.net/Platform';
@@ -18,14 +20,32 @@ export const BUNGIE_ROOT = 'https://www.bungie.net';
 /** Platform error codes this app reacts to by name. */
 export const ERROR_CODES = {
   Success: 1,
+  WebAuthRequired: 99,
   SystemDisabled: 5,
   DestinyAccountNotFound: 1601,
   DestinyUnexpectedError: 1618,
   DestinyPrivacyRestriction: 1665,
   DestinyLegacyPlatformInaccessible: 1670,
   ApiInvalidOrExpiredKey: 2101,
-  ApiKeyMissingFromRequest: 2102
+  ApiKeyMissingFromRequest: 2102,
+  AccessTokenHasExpired: 2111,
+  AuthorizationRecordExpired: 2123,
+  AuthorizationRecordRevoked: 2124
 } as const;
+
+/**
+ * The codes that mean the hour ran out, as opposed to the request being wrong.
+ *
+ * Bungie issues no refresh token to a public client, so there is nothing to do
+ * about any of these except sign in again. They are gathered here because both
+ * the failure mapping below and the sign-in module need the same list.
+ */
+export const AUTH_EXPIRY_CODES: ReadonlySet<number> = new Set([
+  ERROR_CODES.WebAuthRequired,
+  ERROR_CODES.AccessTokenHasExpired,
+  ERROR_CODES.AuthorizationRecordExpired,
+  ERROR_CODES.AuthorizationRecordRevoked
+]);
 
 /**
  * A detached reference to the global fetch throws in some browsers, so every
@@ -34,8 +54,8 @@ export const ERROR_CODES = {
 export const defaultFetch: typeof fetch = (input, init) => fetch(input, init);
 
 export type FailureKind =
-  | 'no-key'
-  | 'bad-key'
+  | 'app-key'
+  | 'signed-out'
   | 'private'
   | 'not-found'
   | 'no-characters'
@@ -59,10 +79,10 @@ export class BungieError extends Error {
 /** Human readable explanation for every failure the UI can hit. */
 export function explainFailure(kind: FailureKind): string {
   switch (kind) {
-    case 'no-key':
-      return 'This needs your own Bungie API key. It takes about a minute to make one and it stays in this browser.';
-    case 'bad-key':
-      return 'Bungie rejected that API key. Check that you copied the whole key from your application page.';
+    case 'app-key':
+      return 'Bungie rejected this site\'s own API key, which is a fault here and not anything to do with your account. Nothing will load until the key is replaced.';
+    case 'signed-out':
+      return 'That sign-in has run out. Bungie sessions last an hour and cannot be renewed, so signing in again is the only way to carry on.';
     case 'private':
       return 'This account has its Destiny history set to private, so Bungie will not hand out the weapon numbers to anyone but the account holder. The player can change this at bungie.net under Settings, Privacy, by allowing their Destiny stats to be public. Nothing here is broken and there is no partial number worth showing.';
     case 'not-found':
@@ -81,11 +101,11 @@ export function explainFailure(kind: FailureKind): string {
 }
 
 function kindForCode(code: number): FailureKind {
+  if (AUTH_EXPIRY_CODES.has(code)) return 'signed-out';
   switch (code) {
     case ERROR_CODES.ApiKeyMissingFromRequest:
-      return 'no-key';
     case ERROR_CODES.ApiInvalidOrExpiredKey:
-      return 'bad-key';
+      return 'app-key';
     case ERROR_CODES.DestinyPrivacyRestriction:
       return 'private';
     case ERROR_CODES.DestinyAccountNotFound:
@@ -139,7 +159,10 @@ export interface BungieEnvelope<T> {
 }
 
 export interface FetchOptions {
+  /** Overrides the shared application key. Only tests have a reason to. */
   apiKey?: string;
+  /** The signed-in visitor's token, when there is one. */
+  accessToken?: string | null;
   method?: 'GET' | 'POST';
   body?: unknown;
   retries?: number;
@@ -159,8 +182,11 @@ export async function platformFetch<T>(
   fetchImpl: typeof fetch = defaultFetch
 ): Promise<T> {
   const retries = options.retries ?? 2;
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (options.apiKey) headers['X-API-Key'] = options.apiKey;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-API-Key': options.apiKey || API_KEY
+  };
+  if (options.accessToken) headers['Authorization'] = 'Bearer ' + options.accessToken;
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
   let lastError: unknown = null;
@@ -207,7 +233,7 @@ export async function platformFetch<T>(
     : new BungieError('unknown', 'bungie.net request failed.');
 }
 
-interface UserInfoCard {
+export interface UserInfoCard {
   membershipType: number;
   membershipId: string;
   bungieGlobalDisplayName?: string;
@@ -224,13 +250,13 @@ interface UserInfoCard {
  */
 export async function searchPlayer(
   name: ParsedBungieName,
-  apiKey: string,
+  accessToken: string | null = null,
   fetchImpl: typeof fetch = defaultFetch
 ): Promise<PlayerRef> {
   const results = await platformFetch<UserInfoCard[]>(
     '/Destiny2/SearchDestinyPlayerByBungieName/-1/',
     {
-      apiKey,
+      accessToken,
       method: 'POST',
       body: { displayName: name.displayName, displayNameCode: name.displayNameCode }
     },
@@ -275,7 +301,7 @@ const CLASS_NAMES: Record<number, string> = { 0: 'Titan', 1: 'Hunter', 2: 'Warlo
 /** Character list for an account, using profile component 200. */
 export async function getCharacters(
   player: PlayerRef,
-  apiKey: string,
+  accessToken: string | null = null,
   fetchImpl: typeof fetch = defaultFetch
 ): Promise<CharacterRef[]> {
   const profile = await platformFetch<ProfileCharactersResponse>(
@@ -284,7 +310,7 @@ export async function getCharacters(
       '/Profile/' +
       player.membershipId +
       '/?components=200',
-    { apiKey },
+    { accessToken },
     fetchImpl
   );
   const data = profile.characters?.data;
@@ -364,7 +390,7 @@ export function readWeaponStats(data: WeaponStatsData | null): WeaponUsage[] {
 export async function getWeaponHistory(
   player: PlayerRef,
   characterId: string,
-  apiKey: string,
+  accessToken: string | null = null,
   fetchImpl: typeof fetch = defaultFetch
 ): Promise<WeaponUsage[]> {
   const data = await platformFetch<WeaponStatsData>(
@@ -375,7 +401,7 @@ export async function getWeaponHistory(
       '/Character/' +
       characterId +
       '/Stats/UniqueWeapons/',
-    { apiKey },
+    { accessToken },
     fetchImpl
   );
   return readWeaponStats(data);
@@ -385,43 +411,14 @@ export async function getWeaponHistory(
 export async function getAllWeaponHistories(
   player: PlayerRef,
   characters: CharacterRef[],
-  apiKey: string,
+  accessToken: string | null = null,
   fetchImpl: typeof fetch = defaultFetch
 ): Promise<WeaponUsage[][]> {
   const out: WeaponUsage[][] = [];
   for (const character of characters) {
-    out.push(await getWeaponHistory(player, character.characterId, apiKey, fetchImpl));
+    out.push(await getWeaponHistory(player, character.characterId, accessToken, fetchImpl));
   }
   return out;
-}
-
-const KEY_STORAGE = 'weapon-report.api-key';
-
-export function loadApiKey(store: Storage | null = safeStorage()): string {
-  if (!store) return '';
-  try {
-    return store.getItem(KEY_STORAGE) || '';
-  } catch {
-    return '';
-  }
-}
-
-export function saveApiKey(key: string, store: Storage | null = safeStorage()): void {
-  if (!store) return;
-  try {
-    if (key) store.setItem(KEY_STORAGE, key.trim());
-    else store.removeItem(KEY_STORAGE);
-  } catch {
-    // A browser with storage disabled simply keeps the key in memory.
-  }
-}
-
-function safeStorage(): Storage | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
-  } catch {
-    return null;
-  }
 }
 
 /** Full bungie.net URL for an icon path out of the manifest. */

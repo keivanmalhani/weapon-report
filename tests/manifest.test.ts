@@ -224,10 +224,10 @@ describe('cache', () => {
 
   it('leaves unrelated storage keys alone', () => {
     const store = fakeStore();
-    store.setItem('weapon-report.api-key', 'secret');
+    store.setItem('d2.session', 'somebody is signed in');
     writeCachedIndex('v1', index, store);
     dropOtherVersions('v1', store);
-    expect(store.getItem('weapon-report.api-key')).toBe('secret');
+    expect(store.getItem('d2.session')).toBe('somebody is signed in');
   });
 
   it('returns null for a corrupt cache entry rather than throwing', () => {

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 //
 // Boots the real page: the shipped index.html markup plus main.ts, with no
-// network. Demo mode has to render on load with nothing set up, which is the
-// promise the site makes.
+// network and nobody signed in. Demo mode has to render on load with nothing
+// set up, which is the promise the site makes. The signed-in half of the same
+// boot is in boot-signed-in.test.ts, which needs its own module registry to
+// seed a session before main.ts reads one.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,6 +13,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const html = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf8');
 
 beforeAll(async () => {
+  sessionStorage.clear();
   // jsdom has no 2D context. The share panel copes with a null context, and
   // stubbing it here keeps jsdom from logging a not implemented warning.
   HTMLCanvasElement.prototype.getContext = (() => null) as never;
@@ -20,7 +23,7 @@ beforeAll(async () => {
 });
 
 describe('first paint', () => {
-  it('renders the demo report without a key or a network call', () => {
+  it('renders the demo report signed out and with no network call', () => {
     expect(document.querySelector('#report .headline')).not.toBeNull();
     expect(document.querySelector('#report .figure')?.textContent).toMatch(/^\d+%$/);
   });
@@ -56,19 +59,32 @@ describe('first paint', () => {
   });
 });
 
-describe('lookup without a key', () => {
-  it('explains that a key is needed rather than drawing an empty chart', async () => {
-    const nameInput = document.querySelector<HTMLInputElement>('#bungie-name');
-    const keyInput = document.querySelector<HTMLInputElement>('#api-key');
-    if (!nameInput || !keyInput) throw new Error('missing inputs');
-    nameInput.value = 'Guardian#1234';
-    keyInput.value = '';
-    document
-      .querySelector<HTMLFormElement>('#lookup')
-      ?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-    await new Promise((r) => setTimeout(r, 30));
-    const panel = document.querySelector('#report .status');
-    expect(panel?.textContent).toContain('API key');
+describe('the way in', () => {
+  it('asks nobody for an API key', () => {
+    expect(document.querySelector('#api-key')).toBeNull();
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(0);
+    const text = document.body.textContent || '';
+    expect(text).not.toContain('API key');
+    expect(document.body.innerHTML).not.toContain('bungie.net/en/Application');
+  });
+
+  it('offers sign-in and says plainly what it buys', () => {
+    const button = document.querySelector<HTMLButtonElement>('#signin');
+    expect(button?.hidden).toBe(false);
+    expect(button?.textContent?.trim()).toBe('Sign in with Bungie');
+    expect(document.querySelector('#session')?.textContent).toBe(
+      'Sign in to read your own account without typing your name.'
+    );
+  });
+
+  it('hides the signed-in controls until somebody signs in', () => {
+    expect(document.querySelector<HTMLButtonElement>('#mine')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('#signout')?.hidden).toBe(true);
+  });
+
+  it('keeps the name lookup, because looking up a friend is the other half', () => {
+    expect(document.querySelector('#bungie-name')).not.toBeNull();
+    expect(document.querySelector<HTMLButtonElement>('#run')?.disabled).toBe(false);
   });
 
   it('rejects a malformed Bungie Name before it calls anything', async () => {

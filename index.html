@@ -37,9 +37,22 @@
         </p>
       </header>
 
+      <div class="signin" id="account">
+        <div class="buttons">
+          <button class="button primary" type="button" id="signin">
+            Sign in with Bungie
+          </button>
+          <button class="button primary" type="button" id="mine" hidden>
+            Run my report
+          </button>
+          <button class="button" type="button" id="signout" hidden>Sign out</button>
+        </div>
+        <p class="session" id="session" role="status" aria-live="polite"></p>
+      </div>
+
       <form class="controls" id="lookup">
         <div class="field">
-          <label for="bungie-name">Bungie Name</label>
+          <label for="bungie-name">Or look up a Bungie Name</label>
           <input
             id="bungie-name"
             name="bungie-name"
@@ -49,27 +62,14 @@
             spellcheck="false"
           />
         </div>
-        <div class="field">
-          <label for="api-key">Your Bungie API key</label>
-          <input
-            id="api-key"
-            name="api-key"
-            type="password"
-            placeholder="Paste once, stays in this browser"
-            autocomplete="off"
-            spellcheck="false"
-          />
-        </div>
         <div class="buttons">
           <button class="button primary" type="submit" id="run">Run the report</button>
           <button class="button" type="button" id="demo">See the demo</button>
         </div>
         <p class="hint">
-          The key is free and takes about a minute:
-          <a href="https://www.bungie.net/en/Application" rel="noreferrer noopener"
-            >make one at bungie.net</a
-          >, set the OAuth type to Public, and copy the API key. It is kept in this
-          browser's local storage and sent only to bungie.net.
+          Anyone whose Destiny stats are public, which is the default, and no
+          sign-in needed. The name is case sensitive and the four digits after
+          the hash are part of it.
         </p>
       </form>
 

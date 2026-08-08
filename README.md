@@ -42,23 +42,31 @@ it sags below that diagonal the more your kills come from a handful of guns. The
 Gini coefficient is that sag expressed as one number between 0 and 1, where 0
 means every gun pulled equal weight and 1 means a single gun did everything.
 
-## Running your own account
+## Running a real account
 
 The manifest is public and needs no credentials, so the demo works with nothing
-set up at all. Reading a named player's stats needs an API key, which is free
-and yours:
+set up at all. There are two ways to get a report about a real one, and neither
+of them asks anybody to create anything.
 
-1. Go to [bungie.net/en/Application](https://www.bungie.net/en/Application) and
-   sign in.
-2. Create a new application. Give it any name and website.
-3. Set OAuth Client Type to Public. No scopes are needed for public stats.
-4. Copy the API Key and paste it into the field on the page.
+**Sign in with Bungie.** One button. It goes to bungie.net, comes back through
+[d2-auth](https://github.com/keivanmalhani/d2-auth), and reads the account you
+signed in as, so there is no name to type and no way to typo it. Every site on
+`keivanmalhani.github.io` shares an origin and therefore shares the session, so
+signing in on one signs you in on all of them. Bungie issues no refresh token to
+a public client, which means the session lasts an hour and cannot be extended,
+only replaced; the page says how much of the hour is left and offers the button
+again when it runs out.
 
-The key is stored in your browser's local storage and is sent only to
-bungie.net. It is never committed, logged or forwarded anywhere. The account you
-look up must have its Destiny privacy set so its stats are public, which is the
-default; a private account returns nothing at all and the page says so rather
-than drawing an empty chart.
+**Type a Bungie Name.** Any account whose Destiny stats are public, which is the
+default. No sign-in required, because looking up somebody else is half of what
+this is for. A private account returns nothing at all and the page says so
+rather than drawing an empty chart.
+
+The site's own Bungie API key ships in the built JavaScript. That is not an
+oversight: a browser has to send one with every request, so there is nowhere to
+put it that a reader cannot reach, and every static Destiny tool works this way.
+The only thing it protects is a rate limit. Signing in adds an access token on
+top of it, and that token lives in `sessionStorage` and dies with the tab.
 
 ## What it will not do
 
@@ -81,10 +89,15 @@ than drawing an empty chart.
 
 ```
 npm ci
-npm test          # vitest, 258 tests
+npm test          # vitest, 301 tests
 npm run build     # typecheck then vite build
 npm run dev       # local dev server
 ```
+
+`src/auth.ts` is vendored verbatim from `d2-auth/src/client.ts` and should be
+changed there rather than here. It is copied rather than depended on because the
+only real contract between these sites is the name and shape of one
+`sessionStorage` key, which is not worth a published package.
 
 There are no runtime dependencies. The development dependencies are Vite,
 TypeScript, Vitest, jsdom for the two DOM test files, and a headless canvas
@@ -101,16 +114,20 @@ node scripts/build-weapon-pool.mjs   # refresh the weapon pool from bungie.net
 ## How it talks to Bungie
 
 - `GET /Platform/Destiny2/Manifest/` for the content version and the path to
-  `DestinyInventoryItemDefinition`. No API key. It returns HTTP 500
-  occasionally, so it is retried.
+  `DestinyInventoryItemDefinition`. No credentials of any kind, which is why the
+  demo works with nothing set up. It returns HTTP 500 occasionally, so it is
+  retried.
 - The English item table is about 190 MB of JSON holding roughly 39000 items, of
   which about 2200 are weapons. It is scanned as it streams in, one top level
   entry at a time, and only the seven fields a weapon row needs are kept. The
   result is around 400 KB and is cached in local storage under the manifest
   version, so a content update invalidates it on its own. The full table is
   never held in memory.
+- `GET /Platform/User/GetMembershipsForCurrentUser/` for the signed-in visitor's
+  own Destiny membership, which is what replaces typing a name. It is the one
+  call that cannot happen without a sign-in.
 - `POST /Platform/Destiny2/SearchDestinyPlayerByBungieName/-1/` to turn a Bungie
-  Name into a membership.
+  Name into a membership. No sign-in needed.
 - `GET /Platform/Destiny2/{membershipType}/Profile/{id}/?components=200` for the
   character list.
 - `GET /Platform/Destiny2/{membershipType}/Account/{id}/Character/{characterId}/Stats/UniqueWeapons/`
@@ -118,8 +135,12 @@ node scripts/build-weapon-pool.mjs   # refresh the weapon pool from bungie.net
   the route says `UniqueWeapons` even though the operation is named
   `Destiny2.GetUniqueWeaponHistory`.
 
-Bungie reflects the request origin in `access-control-allow-origin` and permits
-the `X-API-Key` header, so a browser can call all of this directly.
+The two manifest requests send no headers but `Accept`. Every account request
+carries `X-API-Key`, and also `Authorization: Bearer` whenever a session exists,
+which is what lets a signed-in visitor read their own account even with Destiny
+privacy switched on. Bungie reflects the request origin in
+`access-control-allow-origin` and permits both headers, so a browser can call
+all of this directly.
 
 ## Licence
 

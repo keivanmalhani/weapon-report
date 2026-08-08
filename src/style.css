@@ -70,6 +70,26 @@ body {
   text-wrap: balance;
 }
 
+/* --- sign in -------------------------------------------------------- */
+
+/* One row, because the whole point of it is that there is nothing to fill in. */
+.signin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.session {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 44ch;
+}
+
 /* --- controls ------------------------------------------------------- */
 
 .controls {
